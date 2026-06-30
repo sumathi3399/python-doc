@@ -1,194 +1,158 @@
-# Part 5: Collections & Data Structures - Assignments
+# Part 5: Collections & Data Structures - Practice Problems
 
-## Assignment Guidelines
-
-- **Estimated time:** 12-16 hours total
-- **Prerequisites:** Parts 1-4 complete
-- **Submission:** Python modules with benchmark output and sample data files
-- **Rules:** Choose appropriate data structures deliberately; document time complexity of key operations
+> Test list, tuple, set, dict, and advanced collections
 
 ---
 
-## Assignment 1: Log Analytics & Performance Benchmark Suite
+## Problem 1: List Operations
 
-### Scenario
+**Task**: Remove duplicates preserving order
+```python
+def remove_duplicates(items):
+    # [1, 2, 2, 3, 1] → [1, 2, 3]
+    pass
 
-You receive web server log files and must parse, analyze, and report on them efficiently. Wrong data structure choices will make the tool slow on large inputs — justify every choice.
-
-### Requirements
-
-**Input:** Provide or generate a sample log file (1000+ lines) with format:
-```
-2024-01-15 10:23:45 GET /api/users 200 45ms 192.168.1.1
+assert remove_duplicates([1, 2, 2, 3, 1]) == [1, 2, 3]
 ```
 
-**Implement:**
-
-1. **Parser** using string operations → store records in appropriate structures
-
-2. **Analyses (each a function):**
-   - Unique IP addresses → **set**
-   - Request count per endpoint → **dict** or **Counter**
-   - Top 10 endpoints by traffic → **heapq.nlargest**
-   - Status code distribution → **Counter**
-   - Requests per hour → **defaultdict**
-   - Sliding window: requests in last N minutes per IP → **deque** per IP (or single deque for global rate)
-
-3. **Inverted index:** word → set of line numbers where path contains word → **defaultdict(set)**
-
-4. **LRU Cache (manual):** `OrderedDict`-based cache for parsed log lines (max 100 entries); demonstrate hit/miss stats
-
-5. **Benchmark module:**
-   - Compare list vs set membership for 10K IPs
-   - Compare dict vs linear search for 10K endpoint lookups
-   - Print timing table for 1K, 10K, 100K sizes
-
-6. **Report generator:** formatted summary to console and optional output file
-
-### Technical Specifications
-
-- Lists, tuples, sets, dicts — when and why
-- `collections.defaultdict`, `Counter`, `namedtuple` or `NamedTuple` for LogRecord
-- `deque` for sliding windows and LRU
-- `heapq` for top-K queries
-- `OrderedDict` for LRU cache
-- Time complexity awareness: O(1) vs O(n) lookups documented in comments
-
-### Acceptance Criteria
-
-- [ ] Parses 1000+ line file without error
-- [ ] Top 10 endpoints correct on hand-verified sample
-- [ ] LRU cache evicts oldest when full
-- [ ] Benchmark shows set faster than list for membership at 10K+
-- [ ] Inverted index returns correct line numbers for test queries
-- [ ] Each analysis function documents Big-O in docstring
-
-### Bonus Challenges
-
-- `frozen set` of blocked IPs; O(1) check during parse
-- `chain`/`groupby` from itertools for grouping by status code
-- Memory comparison: size of list vs set for same elements (conceptual estimate)
-
-### Hints
-
-- LogRecord: `namedtuple('LogRecord', ['timestamp', 'method', 'path', 'status', 'duration', 'ip'])`
-- Counter.most_common(10) is acceptable alongside heapq exercise
-- LRU: on access, `move_to_end(key)`; evict `popitem(last=False)`
+**Time**: 10 minutes
 
 ---
 
-## Assignment 2: Inventory & Supply Chain Manager
+## Problem 2: List Comprehension
 
-### Scenario
+**Task**: Squares of even numbers
+```python
+numbers = [1, 2, 3, 4, 5, 6]
+# Get [4, 16, 36] using list comprehension
+```
 
-A warehouse tracks products, stock levels, suppliers, and purchase orders. Operations must be fast for lookups and safe for concurrent-style updates (logical consistency).
-
-### Requirements
-
-**Data structures:**
-
-1. **Product catalog:** `dict[sku -> Product]` where Product is `namedtuple` or small dataclass
-2. **Categories:** `dict[category -> set of skus]` for many-to-many via sets
-3. **Stock levels:** `dict[sku -> int]`
-4. **Low stock alert queue:** `heapq` min-heap by stock level (tie-break by sku)
-5. **Order history per sku:** `defaultdict(deque)` — last 20 stock changes
-6. **Supplier index:** `dict[supplier_name -> list of skus]`
-7. **Active purchase orders:** `OrderedDict` preserving insertion order
-
-**Operations:**
-- `add_product`, `restock`, `sell`, `transfer_between_warehouses`
-- `get_low_stock(threshold)` using heap
-- `products_by_category(category)` O(1) category lookup
-- `find_products(predicate)` filter across catalog
-- `merge_inventories(inv1, inv2)` combining two dicts without duplicating skus incorrectly
-
-**Set operations:**
-- `discontinued_skus` set ∩ `active_skus` → detect data errors
-- `exclusive_to_supplier(supplier)` — skus only from that supplier
-
-**Tuple usage:**
-- Immutable `PricePoint(sku, price, effective_date)` stored in sorted list by date
-- Return multiple values as tuples from `sell()`: `(success, new_level, message)`
-
-### Technical Specifications
-
-- All core collections + advanced (`defaultdict`, `Counter`, `deque`, `heapq`, `OrderedDict`, `namedtuple`)
-- Choosing right structure for each operation
-- Set operations: union, intersection, difference
-- Nested structures: dict of sets, dict of deques
-
-### Acceptance Criteria
-
-- [ ] 50+ products manageable via CLI menu
-- [ ] Low stock heap returns correct ordering
-- [ ] Sell fails gracefully when insufficient stock (no negative inventory)
-- [ ] Order history deque never exceeds 20 entries
-- [ ] Set intersection finds conflicting skus
-- [ ] Category browse is efficient (no full scan if using index)
-
-### Bonus Challenges
-
-- Multi-warehouse: `dict[warehouse_id -> dict[sku -> qty]]`
-- `bisect` on sorted price history for "price at date" queries
-- Export/import inventory as JSON using dict comprehensions
-
-### Hints
-
-- Heap entries: `(stock_level, sku)` for min-heap low stock
-- On restock: push new heap entry; lazy deletion acceptable for assignment
-- `deque(maxlen=20)` auto-evicts old history
+**Time**: 5 minutes
 
 ---
 
-## Assignment 3: Text Corpus Analyzer
+## Problem 3: Tuple Unpacking
 
-### Scenario
+**Task**: Swap without temp variable
+```python
+a, b = 5, 10
+# Swap using tuple unpacking
+# Result: a=10, b=5
+```
 
-Build a text analysis engine for a document corpus (3+ text files). Demonstrates nested collections and algorithmic choices.
+**Time**: 5 minutes
 
-### Requirements
+---
 
-1. **Load corpus** into `list[str]` (lines or documents)
+## Problem 4: Set Operations
 
-2. **Word frequency:** `Counter` across corpus; exclude stop words (provide `set` of ~20 stop words)
+**Task**: Common and unique elements
+```python
+set1 = {1, 2, 3, 4}
+set2 = {3, 4, 5, 6}
 
-3. **Bigram/trigram analysis:** `defaultdict(Counter)` or nested dict
+# Find: intersection, union, difference
+common = ?
+all_items = ?
+only_in_set1 = ?
+```
 
-4. **Document-term matrix:** `dict[doc_id -> Counter]` for TF analysis
+**Time**: 10 minutes
 
-5. **Unique vocabulary:** `set` union across documents; `frozenset` for immutable snapshot
+---
 
-6. **Find documents containing all query words:** set intersection of per-word doc sets
+## Problem 5: Dictionary Methods
 
-7. **Longest word per document:** `max(words, key=len)` with tie handling via list
+**Task**: Count word frequency
+```python
+def word_count(text):
+    # Return dict: {"hello": 2, "world": 1}
+    pass
 
-8. **Flatten nested table data:** recursive function flattening `list` of `list` of `tuple` rows to flat records
+assert word_count("hello world hello") == {"hello": 2, "world": 1}
+```
 
-9. **Performance report:** compare scanning all docs vs indexed lookup for keyword search
+**Time**: 15 minutes
 
-### Technical Specifications
+---
 
-- Lists, tuples, sets, dicts in combination
-- `Counter`, `defaultdict`
-- Nested list/dict comprehension
-- Time complexity section in README
+## Problem 6: DefaultDict
 
-### Acceptance Criteria
+**Task**: Group by first letter
+```python
+from collections import defaultdict
 
-- [ ] Word frequency matches manual count on small sample
-- [ ] Intersection search returns only docs with ALL query terms
-- [ ] Bigram counter produces expected pairs on test sentence
-- [ ] Flatten handles 3+ nesting levels
-- [ ] README explains structure choices with Big-O
+words = ["apple", "banana", "apricot", "blueberry"]
+# Group: {"a": ["apple", "apricot"], "b": ["banana", "blueberry"]}
+```
 
-### Bonus Challenges
+**Time**: 15 minutes
 
-- Implement inverted index with `defaultdict(set)` for O(1) word lookup per doc
-- Jaccard similarity between two documents using sets
-- `heapq` for top 20 words across entire corpus
+---
 
-### Hints
+## Problem 7: Counter
 
-- Tokenize with `str.split()` and `str.lower()`; strip punctuation simply
-- Inverted index: for each word, add doc_id to `index[word]`
-- Intersection: `set.intersection(*[index[w] for w in query_words])`
+**Task**: Most common elements
+```python
+from collections import Counter
+
+numbers = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4]
+# Find top 2 most common with counts
+```
+
+**Time**: 10 minutes
+
+---
+
+## Problem 8: Deque
+
+**Task**: Sliding window max size 3
+```python
+from collections import deque
+
+def add_to_window(window, item):
+    # Keep max 3 items (FIFO)
+    pass
+
+window = deque(maxlen=3)
+```
+
+**Time**: 10 minutes
+
+---
+
+## Problem 9: Named Tuple
+
+**Task**: Point with x, y
+```python
+from collections import namedtuple
+
+Point = namedtuple('Point', ['x', 'y'])
+p = Point(10, 20)
+assert p.x == 10
+assert p[1] == 20
+```
+
+**Time**: 10 minutes
+
+---
+
+## Problem 10: Heapq
+
+**Task**: Find 3 smallest numbers
+```python
+import heapq
+
+numbers = [5, 2, 9, 1, 7, 3]
+# Use heapq.nsmallest to get [1, 2, 3]
+```
+
+**Time**: 10 minutes
+
+---
+
+## Summary Check
+
+**8+ solved** → Collections mastered  
+**5-7 solved** → Practice set operations and advanced collections  
+**< 5 solved** → Review data structures chapter

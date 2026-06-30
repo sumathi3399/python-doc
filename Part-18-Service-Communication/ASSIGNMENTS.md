@@ -1,276 +1,255 @@
-# Part 18: Service-to-Service Communication - Assignments
+# Part 18: Service Communication - Practice Problems
 
-## Assignment Guidelines
-
-- **Estimated time:** 18-24 hours total
-- **Prerequisites:** Parts 1-17 complete
-- **Submission:** Multi-protocol communication project (REST + messaging + gRPC)
-- **Rules:** Implement timeouts, retries, idempotency, and correlation IDs on every cross-service call
+> Test REST, messaging, gRPC
 
 ---
 
-## Assignment 1: Order-Payment Saga with REST & Message Queue
+## Problem 1: REST Call with Retry
 
-### Scenario
+**Task**: HTTP with retry logic
+```python
+import httpx
+import time
 
-Implement an order checkout flow where Order Service and Payment Service communicate via synchronous REST for queries and asynchronous messaging for the payment workflow — including failure compensation.
-
-### Requirements
-
-**Order Service:**
-
-- `POST /orders` — creates order in `pending` state
-- Publishes `PaymentRequested` event to RabbitMQ (or Redis Streams)
-- Listens for `PaymentCompleted`, `PaymentFailed`
-- On `PaymentCompleted` → status `paid`; on `PaymentFailed` → `cancelled` + `StockReleaseRequested` event
-
-**Payment Service:**
-
-- Consumes `PaymentRequested`
-- Simulates payment processing (80% success, 20% failure with random)
-- Publishes `PaymentCompleted` or `PaymentFailed` with same `correlation_id` and `order_id`
-- `GET /payments/{order_id}` — sync status query via REST
-
-**REST integration (Order → Payment):**
-
-- Before creating order, `GET /payments/methods/{user_id}` validates payment method exists
-- Use `httpx.AsyncClient` with:
-  - Timeout: 3s connect, 5s read
-  - Retry: 3 attempts, exponential backoff on 5xx
-  - Correlation header: `X-Correlation-ID`
-
-**Messaging (RabbitMQ recommended):**
-
-- Exchange: `orders` (topic)
-- Queues: `payment.requests`, `payment.results`, `inventory.release`
-- Dead letter exchange for failed messages after 3 retries
-- Manual ack after successful processing
-
-**Idempotency:**
-
-- Payment Service: `Idempotency-Key` header on REST; `payment_idempotency:{key}` in Redis
-- Event handler skips duplicate `PaymentRequested` with same `event_id`
-
-**Error handling:**
-
-- Order Service REST client: circuit breaker after 5 failures
-- Malformed message → DLQ + alert log
-
-**Docker Compose:** order-service, payment-service, rabbitmq, redis, postgres × 2
-
-### Technical Specifications
-
-- Synchronous REST (httpx) with timeouts and retries
-- Asynchronous messaging (RabbitMQ or Kafka)
-- Event-driven architecture
-- Saga pattern with compensation
-- Idempotency keys
-- Correlation IDs
-- Dead letter queues
-
-### Acceptance Criteria
-
-- [ ] Successful payment flow: order pending → paid (events + state correct)
-- [ ] Failed payment cancels order and publishes stock release event
-- [ ] Duplicate `PaymentRequested` does not double-charge (idempotency proved)
-- [ ] REST retry logs 3 attempts on simulated 503 from Payment Service
-- [ ] DLQ receives message after handler raises 3 times
-- [ ] Correlation ID consistent in Order and Payment logs for one checkout
-- [ ] `docker-compose up` runs full flow via test script
-
-### Bonus Challenges
-
-- Outbox table in Order Service for reliable event publish
-- Payment webhook simulation (async callback path)
-- OpenAPI client generated from Payment Service spec
-
-### Hints
-
-- RabbitMQ: `aio_pika` connect_robust, declare durable queues
-- Saga compensation: separate handler for `PaymentFailed`
-- httpx retry: `transport = httpx.AsyncHTTPTransport(retries=3)` or manual loop
-
----
-
-## Assignment 2: Event Streaming with Kafka
-
-### Scenario
-
-Build an event streaming pipeline for an analytics platform using Kafka — multiple producers, multiple consumer groups, and event schema evolution.
-
-### Requirements
-
-**Topics:**
-
-- `user.events` — registration, login, profile_update
-- `order.events` — created, paid, shipped
-- `analytics.aggregates` — computed metrics (producer: analytics service)
-
-**Producers (User Service & Order Service):**
-
-- Publish JSON events with schema:
-```json
-{
-  "event_id": "uuid",
-  "event_type": "order.created",
-  "timestamp": "ISO8601",
-  "correlation_id": "uuid",
-  "version": 1,
-  "payload": {}
-}
+async def call_with_retry(url, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, timeout=5)
+                return response.json()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(2 ** attempt)  # Exponential backoff
 ```
-- Partition key: `user_id` for user events, `order_id` for order events
-- Producer acks=all, retries=3
 
-**Consumers:**
-
-1. **Analytics Consumer** (consumer group `analytics`)
-   - Aggregates: orders per hour, revenue per hour
-   - Writes to PostgreSQL `hourly_stats` table
-   - At-least-once semantics with manual offset commit after DB write
-
-2. **Notification Consumer** (consumer group `notifications`)
-   - Sends email stub on `order.paid`
-   - Independent offset from analytics group — same events, different processing
-
-3. **Audit Consumer** (consumer group `audit`)
-   - Append-only audit log table
-
-**Kafka features:**
-
-- Create topics with 3 partitions, replication factor 1 (dev)
-- Consumer rebalance handling — log on partition assign/revoke
-- `GET /kafka/health` — check broker connectivity
-
-**Failure scenarios (test scripts):**
-
-- Consumer crash mid-processing → message redelivered → idempotent write
-- Slow consumer → lag monitoring endpoint `GET /analytics/lag`
-
-**Schema evolution:**
-
-- `version: 2` adds optional field `metadata` — consumers handle both v1 and v2
-
-### Technical Specifications
-
-- Kafka producer/consumer (aiokafka or confluent-kafka)
-- Topic partitioning and consumer groups
-- Event-driven architecture
-- At-least-once delivery and idempotent consumers
-- Event schema versioning
-- Offset management
-
-### Acceptance Criteria
-
-- [ ] Events with same user_id land in same partition (prove with partition metadata in logs)
-- [ ] Analytics and Notification groups both process same `order.paid` independently
-- [ ] Hourly stats match manual count after 100 test events
-- [ ] Consumer idempotency: replay does not duplicate stats (unique constraint on hour+metric)
-- [ ] v1 and v2 events both consumed without crash
-- [ ] Lag endpoint returns increasing then decreasing lag under load test
-
-### Bonus Challenges
-
-- Kafka Connect sink to PostgreSQL (config only)
-- Exactly-once semantics discussion + transactional producer attempt
-- Schema Registry with Avro (optional advanced)
-
-### Hints
-
-- aiokafka: `AIOKafkaProducer`, `AIOKafkaConsumer(group_id='analytics')`
-- Idempotent DB write: `INSERT ... ON CONFLICT DO NOTHING`
-- Partition key: `key=order_id.encode()` on send
+**Time**: 20 minutes
 
 ---
 
-## Assignment 3: gRPC Inter-Service Communication
+## Problem 2: Message Queue Producer
 
-### Scenario
+**Task**: Publish message to RabbitMQ
+```python
+# Using pika library
+import pika
 
-Replace REST calls between high-throughput internal services with gRPC for inventory checks and stock reservation — while keeping REST at the API Gateway for external clients.
+connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+channel = connection.channel()
 
-### Requirements
+channel.queue_declare(queue='tasks')
+channel.basic_publish(exchange='', routing_key='tasks', body='Task data')
 
-**Protocol Buffers (`protos/inventory.proto`):**
+connection.close()
+```
 
+**Time**: 15 minutes
+
+---
+
+## Problem 3: Message Queue Consumer
+
+**Task**: Consume messages
+```python
+import pika
+
+connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+channel = connection.channel()
+
+channel.queue_declare(queue='tasks')
+
+def callback(ch, method, properties, body):
+    print(f"Received: {body}")
+
+channel.basic_consume(queue='tasks', on_message_callback=callback, auto_ack=True)
+channel.start_consuming()
+```
+
+**Time**: 15 minutes
+
+---
+
+## Problem 4: Event-Driven Pattern
+
+**Task**: Publish domain event
+```python
+import json
+
+class EventPublisher:
+    def __init__(self, channel):
+        self.channel = channel
+    
+    def publish(self, event_type, data):
+        event = {
+            "type": event_type,
+            "data": data,
+            "timestamp": "2024-01-01T00:00:00"
+        }
+        self.channel.basic_publish(
+            exchange='events',
+            routing_key=event_type,
+            body=json.dumps(event)
+        )
+
+# Usage
+publisher.publish("user.created", {"user_id": 1, "name": "Alice"})
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 5: Idempotent Message Handler
+
+**Task**: Process message once
+```python
+import redis
+
+r = redis.Redis()
+
+def process_message(message_id, data):
+    # Check if already processed
+    if r.exists(f"processed:{message_id}"):
+        print("Already processed")
+        return
+    
+    # Process message
+    print(f"Processing {data}")
+    
+    # Mark as processed
+    r.setex(f"processed:{message_id}", 86400, "1")
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 6: Correlation ID in Events
+
+**Task**: Track request across events
+```python
+import uuid
+
+def create_event(event_type, data, correlation_id=None):
+    return {
+        "event_id": str(uuid.uuid4()),
+        "correlation_id": correlation_id or str(uuid.uuid4()),
+        "type": event_type,
+        "data": data
+    }
+
+event = create_event("order.created", {"order_id": 123}, "corr-123")
+```
+
+**Time**: 15 minutes
+
+---
+
+## Problem 7: gRPC Service Definition
+
+**Task**: Create proto file
 ```protobuf
-service InventoryService {
-  rpc CheckStock(StockRequest) returns (StockResponse);
-  rpc ReserveStock(ReserveRequest) returns (ReserveResponse);
-  rpc ReleaseStock(ReleaseRequest) returns (ReleaseResponse);
-  rpc StreamStockUpdates(StockFilter) returns (stream StockUpdate);
+syntax = "proto3";
+
+service UserService {
+  rpc GetUser (UserRequest) returns (UserResponse);
+}
+
+message UserRequest {
+  int32 user_id = 1;
+}
+
+message UserResponse {
+  int32 user_id = 1;
+  string name = 2;
 }
 ```
 
-**Inventory gRPC Server** (port 50051):
+**Time**: 15 minutes
 
-- Implement all 4 RPCs
-- `CheckStock` — read current quantity
-- `ReserveStock` — decrement if available; return success/failure
-- `ReleaseStock` — compensation for cancelled orders
-- `StreamStockUpdates` — server streaming: push updates every 5s for filtered SKUs
+---
 
-**Order Service gRPC Client:**
+## Problem 8: REST vs Messaging Decision
 
-- Call `CheckStock` before order creation
-- Call `ReserveStock` in transaction flow
-- On payment failure, call `ReleaseStock`
-- Connection channel with keepalive options
+**Task**: Choose correct pattern
+```
+Choose REST or Messaging:
 
-**API Gateway:**
+1. Get user details immediately: ________
+2. Send email notification: ________
+3. Order payment processing: ________
+4. Real-time chat message: ________
+5. Product catalog query: ________
 
-- Still REST externally
-- Order Service uses gRPC internally — document "REST at edge, gRPC inside"
+Answers: 1=REST, 2=Messaging, 3=Messaging, 4=Messaging, 5=REST
+```
 
-**gRPC features:**
+**Time**: 10 minutes
 
-- Metadata: pass `correlation-id` in gRPC metadata headers
-- Deadline: 2 second deadline on `CheckStock`
-- Error handling: map `grpc.RpcError` codes to application errors
-- Reflection enabled for `grpcurl` testing
+---
 
-**Mixed communication assignment deliverable:**
+## Problem 9: Saga Pattern (Order)
 
-| Integration | Protocol | Use Case |
-|-------------|----------|----------|
-| Client → Gateway | REST | Public API |
-| Gateway → Order | REST | Proxy |
-| Order → Inventory | gRPC | Stock check/reserve |
-| Order → Payment | RabbitMQ | Async payment |
-| Analytics | Kafka | Event stream |
+**Task**: Compensating transactions
+```python
+class OrderSaga:
+    def __init__(self):
+        self.steps = []
+    
+    async def execute(self, order):
+        try:
+            # Step 1: Reserve inventory
+            await self.reserve_inventory(order)
+            self.steps.append(('inventory', order.id))
+            
+            # Step 2: Process payment
+            await self.process_payment(order)
+            self.steps.append(('payment', order.id))
+            
+            return "SUCCESS"
+        except Exception as e:
+            # Compensate in reverse order
+            await self.compensate()
+            return "FAILED"
+    
+    async def compensate(self):
+        for step, order_id in reversed(self.steps):
+            if step == 'inventory':
+                await self.release_inventory(order_id)
+            elif step == 'payment':
+                await self.refund_payment(order_id)
+```
 
-**Tests:**
+**Time**: 30 minutes
 
-- Unit test gRPC servicer with in-memory server
-- Integration test full order with mock payment
+---
 
-### Technical Specifications
+## Problem 10: Dead Letter Queue
 
-- gRPC server and client in Python (`grpcio`, `grpcio-tools`)
-- Protocol Buffers definition and code generation
-- Streaming RPC (server streaming)
-- Metadata and deadlines
-- Error status codes
-- Mixed REST + gRPC + messaging architecture
+**Task**: Handle failed messages
+```python
+def process_with_dlq(message, max_retries=3):
+    retry_count = message.get('retry_count', 0)
+    
+    try:
+        # Process message
+        process(message['data'])
+    except Exception as e:
+        if retry_count < max_retries:
+            # Retry
+            message['retry_count'] = retry_count + 1
+            republish(message)
+        else:
+            # Send to DLQ
+            send_to_dlq(message)
+```
 
-### Acceptance Criteria
+**Time**: 20 minutes
 
-- [ ] `grpcurl` can call CheckStock and ReserveStock
-- [ ] Order flow uses gRPC for inventory (not REST) — verified in code/README
-- [ ] Deadline exceeded on slow CheckStock returns error to Order Service
-- [ ] StreamStockUpdates delivers 5 updates in 25s test
-- [ ] correlation-id visible in gRPC metadata on server logs
-- [ ] Full mixed-protocol diagram in README
-- [ ] proto generated Python files in repo or generation script documented
+---
 
-### Bonus Challenges
+## Summary Check
 
-- Bidirectional streaming for real-time inventory sync
-- gRPC health checking protocol (`grpc.health.v1`)
-- TLS/mTLS between Order and Inventory (self-signed certs)
-
-### Hints
-
-- Generate: `python -m grpc_tools.protoc -I./protos --python_out=. --grpc_python_out=. protos/inventory.proto`
-- Deadline: `stub.CheckStock(request, timeout=2)`
-- Metadata: `metadata=(('correlation-id', cid),)`
+**7+ solved** → Communication patterns mastered  
+**4-6 solved** → Practice async messaging  
+**< 4 solved** → Review REST vs messaging

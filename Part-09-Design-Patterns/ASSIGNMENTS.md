@@ -1,191 +1,302 @@
-# Part 9: Design Patterns - Assignments
+# Part 9: Design Patterns - Practice Problems
 
-## Assignment Guidelines
-
-- **Estimated time:** 14-18 hours total
-- **Prerequisites:** Parts 1-8 complete
-- **Submission:** Python package demonstrating patterns with README mapping each pattern to files
-- **Rules:** Use at least 8 distinct patterns across assignments; justify when Pythonic alternatives are better
+> Test Singleton, Factory, Observer, Strategy, and more
 
 ---
 
-## Assignment 1: Extensible Notification Platform
+## Problem 1: Singleton Pattern
 
-### Scenario
+**Task**: Ensure one instance
+```python
+class Database:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
-Build a notification system where new channels (Email, SMS, Slack, Push) and delivery strategies can be added without modifying core code. Multiple design patterns must work together.
+db1 = Database()
+db2 = Database()
+assert db1 is db2  # Same instance
+```
 
-### Requirements
-
-**Patterns to implement (minimum):**
-
-| Pattern | Usage |
-|---------|-------|
-| **Factory** | `NotificationFactory.create(channel_type)` → Email/SMS/Slack notifier |
-| **Strategy** | `DeliveryStrategy`: immediate, batched, scheduled |
-| **Observer** | `EventBus` notifies subscribers on `notification.sent`, `notification.failed` |
-| **Singleton** | `ConfigurationManager` — one global config instance |
-| **Template Method** | `BaseNotifier.send()` defines steps: validate → format → deliver → log; subclasses implement `deliver()` |
-| **Decorator** | `LoggingNotifierDecorator`, `RetryNotifierDecorator` wrapping any `Notifier` |
-| **Facade** | `NotificationService` — simple `send(user, message, channel)` hiding subsystem complexity |
-| **Command** | `SendNotificationCommand` with `execute()` and `undo()` (undo removes from outbox queue) |
-
-**Functional requirements:**
-
-1. Register users with channel preferences (`dict` or small model)
-2. Send notification through factory-created notifier with selected strategy
-3. Observers: `MetricsObserver` (counts), `AuditLogObserver` (writes log file)
-4. Batch strategy queues messages; flush when batch size or timeout reached
-5. Decorators stack: `Retry(Logging(EmailNotifier()))`
-6. Facade exposes one-liner API used by demo CLI
-7. Command pattern supports undo for last 10 notifications in outbox
-
-**Pythonic alternatives section in README:**
-- When module-level functions replace Strategy
-- When `@register` dict replaces Factory
-- When generators replace Iterator pattern
-
-### Technical Specifications
-
-- Creational: Factory, Singleton, Builder (optional for complex messages)
-- Structural: Decorator, Facade, Adapter (adapt legacy `LegacySmsGateway` to `Notifier` interface)
-- Behavioral: Strategy, Observer, Command, Template Method
-- ABC or Protocol for `Notifier` interface
-
-### Acceptance Criteria
-
-- [ ] New channel type addable by creating class + factory registration only
-- [ ] Strategy swap changes behavior without changing client code
-- [ ] 2+ observers receive events on send
-- [ ] Decorator stack logs and retries (prove retry with mock failure)
-- [ ] Facade `send()` works end-to-end from CLI
-- [ ] Command `undo()` removes last notification from outbox
-- [ ] README maps each pattern to specific class/file
-
-### Bonus Challenges
-
-- **Builder** for `NotificationBuilder().to(user).subject().body().priority().build()`
-- **Chain of Responsibility** for validation pipeline before send
-- **Prototype** for cloning notification templates
-
-### Hints
-
-- Observer: `EventBus.subscribe(event_name, callback)` list
-- Command history: `deque` of commands max 10
-- Adapter: wrap `LegacySmsGateway.send_sms(phone, msg)` as `Notifier.deliver()`
+**Time**: 15 minutes
 
 ---
 
-## Assignment 2: Document Export Framework
+## Problem 2: Factory Pattern
 
-### Scenario
+**Task**: Create objects by type
+```python
+class Animal:
+    def speak(self):
+        pass
 
-A reporting service exports data to PDF, CSV, JSON, and HTML. The framework must support multiple export formats, filtering pipelines, and a simplified API for clients.
+class Dog(Animal):
+    def speak(self):
+        return "Woof"
 
-### Requirements
+class Cat(Animal):
+    def speak(self):
+        return "Meow"
 
-**Patterns:**
+class AnimalFactory:
+    @staticmethod
+    def create(animal_type):
+        if animal_type == "dog":
+            return Dog()
+        elif animal_type == "cat":
+            return Cat()
 
-1. **Abstract Factory** — `ExportFactory` creates matching `Writer` + `Formatter` pairs
-2. **Builder** — `ReportBuilder` with fluent API: `.add_section().add_table().set_theme().build()`
-3. **Strategy** — `SortStrategy`, `FilterStrategy` applied before export
-4. **Iterator** — custom `ReportSectionIterator` over nested sections
-5. **Composite** — `ReportComponent` tree: sections contain tables, paragraphs, charts (charts as stub)
-6. **Proxy** — `LazyDataProxy` loads heavy dataset only on first access to `.rows`
-7. **Memento** — save/restore `ReportBuilder` state for undo in interactive mode
-8. **State** — `ExportJob` transitions: draft → validating → exporting → completed/failed
+animal = AnimalFactory.create("dog")
+assert animal.speak() == "Woof"
+```
 
-**Data:** Sample sales data (100+ rows) with region, product, amount, date
-
-**Deliverables:**
-- Export same report to 4 formats with consistent content
-- Filter strategy: date range + minimum amount
-- Sort strategy: by amount descending
-- Composite tree printed as indented structure
-- State pattern rejects invalid transitions (e.g., export from draft without validate)
-
-### Technical Specifications
-
-- Minimum 8 patterns from creational, structural, behavioral categories
-- Clear separation: data loading, transformation, formatting, writing
-- Pythonic notes: dataclasses for Report nodes, `@singledispatch` for format dispatch
-
-### Acceptance Criteria
-
-- [ ] All 4 export formats produce files from same builder pipeline
-- [ ] Builder fluent API constructs multi-section report
-- [ ] Composite `render()` traverses tree recursively
-- [ ] Lazy proxy loads data exactly once (counter proves)
-- [ ] Memento restores previous builder state after undo
-- [ ] Invalid state transition raises error with clear message
-
-### Bonus Challenges
-
-- **Visitor** pattern for traversing composite and exporting per-node
-- **Flyweight** for shared style objects across table cells
-- **Bridge** separating abstraction (Report) from implementation (Renderer)
-
-### Hints
-
-- Builder methods return `self` for chaining
-- Memento: store `deepcopy` of builder internal list
-- State: each state is class with `validate(job)`, `export(job)` methods
+**Time**: 20 minutes
 
 ---
 
-## Assignment 3: E-Commerce Checkout Orchestrator
+## Problem 3: Observer Pattern
 
-### Scenario
+**Task**: Event notification
+```python
+class Subject:
+    def __init__(self):
+        self._observers = []
+    
+    def attach(self, observer):
+        self._observers.append(observer)
+    
+    def notify(self, message):
+        for observer in self._observers:
+            observer.update(message)
 
-Implement checkout flow coordinating cart, inventory, payment, and shipping subsystems. This is the capstone pattern assignment — 10+ patterns in one coherent system.
+class Observer:
+    def __init__(self, name):
+        self.name = name
+    
+    def update(self, message):
+        print(f"{self.name} received: {message}")
 
-### Requirements
+subject = Subject()
+obs1 = Observer("A")
+subject.attach(obs1)
+subject.notify("Hello")
+```
 
-**Subsystems (use Facade per subsystem):**
-- `InventoryFacade` — reserve/release stock
-- `PaymentFacade` — charge/refund (mock)
-- `ShippingFacade` — calculate rates, create shipment
+**Time**: 20 minutes
 
-**Patterns in checkout flow:**
+---
 
-1. **Factory Method** — `PaymentProcessorFactory` creates Card/PayPal/Crypto processors
-2. **Strategy** — shipping cost: standard, express, overnight
-3. **Observer** — order status changes notify email/inventory/analytics listeners
-4. **Command** — checkout steps as commands; saga-style compensation on failure
-5. **Chain of Responsibility** — fraud check → stock check → payment → confirmation
-6. **Singleton** — order ID generator
-7. **Decorator** — add gift wrap, insurance to line items (price decorators)
-8. **Adapter** — third-party `StripeLegacyAPI` adapted to `PaymentProcessor`
-9. **Template Method** — `CheckoutProcess.run()` fixed steps, subclasses override hooks
-10. **Repository** (preview) — `OrderRepository` in-memory storage
+## Problem 4: Strategy Pattern
 
-**Compensation (saga):** if payment fails after stock reserved, release stock via compensating command
+**Task**: Different algorithms
+```python
+class SortStrategy:
+    def sort(self, data):
+        pass
 
-**Demo:** CLI checkout with 3 products; simulate payment failure and successful retry
+class BubbleSort(SortStrategy):
+    def sort(self, data):
+        # Implementation
+        return sorted(data)
 
-### Technical Specifications
+class QuickSort(SortStrategy):
+    def sort(self, data):
+        return sorted(data, reverse=False)
 
-- Integrate creational, structural, behavioral patterns cohesively
-- Not pattern soup — each pattern solves a stated problem in README
-- Diagram in README (ASCII or mermaid) showing flow
+class Sorter:
+    def __init__(self, strategy):
+        self.strategy = strategy
+    
+    def sort(self, data):
+        return self.strategy.sort(data)
 
-### Acceptance Criteria
+sorter = Sorter(BubbleSort())
+assert sorter.sort([3,1,2]) == [1,2,3]
+```
 
-- [ ] Successful checkout runs full chain and notifies all observers
-- [ ] Payment failure triggers stock release (compensation)
-- [ ] 3 shipping strategies produce different costs for same cart
-- [ ] Fraud handler in chain can block checkout
-- [ ] 10+ patterns documented with one-sentence justification each
-- [ ] Demo runs without external services
+**Time**: 25 minutes
 
-### Bonus Challenges
+---
 
-- **Mediator** between cart, inventory, and payment instead of direct calls
-- **Specification** pattern for complex discount rules
-- Serialize order to dict using **Memento** for cart snapshots
+## Problem 5: Decorator Pattern
 
-### Hints
+**Task**: Add behavior dynamically
+```python
+class Coffee:
+    def cost(self):
+        return 5
 
-- Command compensation: each command implements `undo()`
-- Chain: each handler has `set_next(handler)` or list iteration
-- Keep payment/inventory as separate modules with facades
+class MilkDecorator:
+    def __init__(self, coffee):
+        self._coffee = coffee
+    
+    def cost(self):
+        return self._coffee.cost() + 2
+
+coffee = Coffee()
+milk_coffee = MilkDecorator(coffee)
+assert milk_coffee.cost() == 7
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 6: Builder Pattern
+
+**Task**: Step-by-step construction
+```python
+class Pizza:
+    def __init__(self):
+        self.size = None
+        self.toppings = []
+
+class PizzaBuilder:
+    def __init__(self):
+        self.pizza = Pizza()
+    
+    def set_size(self, size):
+        self.pizza.size = size
+        return self
+    
+    def add_topping(self, topping):
+        self.pizza.toppings.append(topping)
+        return self
+    
+    def build(self):
+        return self.pizza
+
+pizza = PizzaBuilder().set_size("large").add_topping("cheese").build()
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 7: Adapter Pattern
+
+**Task**: Make incompatible interfaces work
+```python
+class OldPrinter:
+    def print_old(self, text):
+        return f"OLD: {text}"
+
+class NewPrinter:
+    def print(self, text):
+        pass
+
+class PrinterAdapter(NewPrinter):
+    def __init__(self, old_printer):
+        self.old_printer = old_printer
+    
+    def print(self, text):
+        return self.old_printer.print_old(text)
+
+old = OldPrinter()
+adapter = PrinterAdapter(old)
+print(adapter.print("Hello"))
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 8: Command Pattern
+
+**Task**: Encapsulate actions
+```python
+class Command:
+    def execute(self):
+        pass
+
+class LightOnCommand(Command):
+    def __init__(self, light):
+        self.light = light
+    
+    def execute(self):
+        self.light.turn_on()
+
+class Light:
+    def turn_on(self):
+        print("Light on")
+
+light = Light()
+command = LightOnCommand(light)
+command.execute()
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 9: Template Method
+
+**Task**: Define algorithm skeleton
+```python
+from abc import ABC, abstractmethod
+
+class DataProcessor(ABC):
+    def process(self):
+        self.read_data()
+        self.process_data()
+        self.save_data()
+    
+    @abstractmethod
+    def read_data(self):
+        pass
+    
+    @abstractmethod
+    def process_data(self):
+        pass
+    
+    def save_data(self):
+        print("Saving")
+
+class CSVProcessor(DataProcessor):
+    def read_data(self):
+        print("Reading CSV")
+    
+    def process_data(self):
+        print("Processing CSV")
+```
+
+**Time**: 25 minutes
+
+---
+
+## Problem 10: Facade Pattern
+
+**Task**: Simplified interface
+```python
+class SubsystemA:
+    def operation_a(self):
+        return "A"
+
+class SubsystemB:
+    def operation_b(self):
+        return "B"
+
+class Facade:
+    def __init__(self):
+        self.subsystem_a = SubsystemA()
+        self.subsystem_b = SubsystemB()
+    
+    def simple_operation(self):
+        return self.subsystem_a.operation_a() + self.subsystem_b.operation_b()
+
+facade = Facade()
+assert facade.simple_operation() == "AB"
+```
+
+**Time**: 15 minutes
+
+---
+
+## Summary Check
+
+**7+ solved** → Design patterns understood  
+**4-6 solved** → Review pattern purposes  
+**< 4 solved** → Study patterns with examples

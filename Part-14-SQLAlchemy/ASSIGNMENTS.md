@@ -1,254 +1,185 @@
-# Part 14: SQLAlchemy - Assignments
+# Part 14: SQLAlchemy - Practice Problems
 
-## Assignment Guidelines
-
-- **Estimated time:** 16-20 hours total
-- **Prerequisites:** Parts 1-13 complete
-- **Submission:** SQLAlchemy project with Alembic migrations, repository layer, and tests
-- **Rules:** Use SQLAlchemy 2.x style (`select()`, `session.execute()`); include Alembic migrations
+> Test ORM, relationships, queries
 
 ---
 
-## Assignment 1: Blog Platform Database Layer
+## Problem 1: Define Model
 
-### Scenario
-
-Design and implement the complete database layer for a multi-author blog with posts, comments, tags, and categories. Focus on relationships, efficient queries, and avoiding the N+1 problem.
-
-### Requirements
-
-**Models:**
-
-1. **`User`** — id, email, username, hashed_password, is_active, created_at
-2. **`Post`** — id, title, slug, content, status (draft/published), author_id FK, published_at
-3. **`Comment`** — id, post_id, author_id, body, created_at, parent_id (self-referential for threads)
-4. **`Tag`** — id, name (unique)
-5. **`post_tags`** — association table (many-to-many)
-6. **`Category`** — id, name; one-to-many with Post
-
-**Relationships:**
-
-- User → Posts (one-to-many)
-- Post → Comments (one-to-many, cascade delete)
-- Post ↔ Tags (many-to-many)
-- Comment → Comment (self-referential tree)
-- Category → Posts
-
-**Repository layer:**
-
+**Task**: Create User model
 ```python
-class PostRepository:
-    def get_with_comments(self, post_id: int) -> Post | None  # eager load
-    def get_published_by_author(self, author_id: int, skip: int, limit: int) -> list[Post]
-    def search_by_tag(self, tag_name: str) -> list[Post]
-    def get_feed(self, skip: int, limit: int) -> list[Post]  # published, with author+tags
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    email = Column(String, unique=True)
+
+# Create tables
+engine = create_engine('sqlite:///test.db')
+Base.metadata.create_all(engine)
 ```
 
-**Query requirements:**
-
-- Use `select()` with `join`, `options(selectinload(...))` or `joinedload`
-- Aggregate: count posts per author (`func.count`, `group_by`)
-- Filter: posts published in last 30 days
-- Subquery: authors with more than 5 published posts
-- Avoid N+1: prove with SQL echo that feed query uses ≤ 3 queries
-
-**Session management:**
-
-- `get_db()` dependency with yield pattern
-- Context manager `with Session(engine) as session:`
-
-**Alembic:**
-
-- Initial migration creating all tables
-- Second migration adding `view_count` column to Post
-
-**CRUD scripts:**
-
-- Seed database with 5 users, 20 posts, 50 comments, 10 tags
-- CLI: `python -m blog.cli create-post`, `list-posts`, `add-comment`
-
-### Technical Specifications
-
-- SQLAlchemy 2.x ORM declarative models
-- Relationships: one-to-many, many-to-many, self-referential
-- Sessions, transactions, commit/rollback
-- select(), where(), join(), eager loading
-- Repository pattern
-- Alembic migrations
-- Indexes on slug, email, published_at
-
-### Acceptance Criteria
-
-- [ ] All relationships navigable in Python (`post.author`, `post.tags`, `comment.replies`)
-- [ ] Cascade delete removes comments when post deleted
-- [ ] `get_feed` loads author and tags without N+1 (SQL log evidence in README)
-- [ ] Search by tag returns correct posts
-- [ ] Self-referential comments support 3-level threading
-- [ ] Both Alembic migrations apply cleanly on empty DB
-- [ ] 15+ tests with in-memory SQLite
-
-### Bonus Challenges
-
-- Soft delete mixin (`deleted_at` column) with filtered queries
-- Full-text search on title/content (SQLite FTS or ILIKE)
-- Async SQLAlchemy version with `AsyncSession`
-
-### Hints
-
-- Association table: `Table('post_tags', Base.metadata, Column('post_id', FK), Column('tag_id', FK))`
-- Eager load: `options(selectinload(Post.comments), joinedload(Post.author))`
-- Self-ref: `parent_id = mapped_column(ForeignKey('comments.id'))`, `replies = relationship(back_populates='parent')`
+**Time**: 15 minutes
 
 ---
 
-## Assignment 2: E-Commerce Database Schema
+## Problem 2: Create Session
 
-### Scenario
+**Task**: Add and commit user
+```python
+from sqlalchemy.orm import sessionmaker
 
-Build a production-grade e-commerce schema: products, inventory, orders, payments, and addresses — with complex relationships and transactional order placement.
+Session = sessionmaker(bind=engine)
+session = Session()
 
-### Requirements
+user = User(name="Alice", email="alice@example.com")
+session.add(user)
+session.commit()
+```
 
-**Models:**
-
-- `Customer`, `Address` (one-to-many from customer)
-- `Product`, `ProductCategory` (self-referential tree), `ProductImage`
-- `Inventory` (product_id, warehouse_id, quantity) — composite uniqueness
-- `Warehouse`
-- `Order`, `OrderItem` (snapshot price at purchase time)
-- `Payment` (one-to-one with Order)
-- `ProductTag`, `product_tag_link` (many-to-many)
-- `Cart`, `CartItem` (optional)
-
-**Business operations (service functions using session):**
-
-1. **`place_order(customer_id, cart_items) -> Order`**
-   - Transaction: check inventory → decrement stock → create order + items → create payment pending
-   - Rollback entire transaction if insufficient stock
-
-2. **`calculate_order_total(order_id) -> Decimal`** — sum of line items; never recalculate from current product price
-
-3. **`get_products_by_category(category_id, include_subcategories=True)`** — recursive CTE or tree walk
-
-4. **`get_low_stock_products(threshold=10)`** — join Inventory, filter, order by quantity
-
-5. **`apply_discount(order_id, percent)`** — update order within transaction
-
-**Advanced queries:**
-
-- Top 10 products by revenue (join OrderItem, aggregate)
-- Customers with no orders (outer join, filter null)
-- Products never ordered (subquery / NOT IN / NOT EXISTS)
-
-**Alembic:** 3 migrations — initial, add index on order status, add audit columns
-
-**SQLAlchemy 2.x:**
-
-- Use `mapped_column`, `Mapped[]` type annotations
-- `session.scalars(select(Product).where(...)).all()`
-
-### Technical Specifications
-
-- Complex relationships and constraints
-- Transactions and isolation (demonstrate rollback)
-- Aggregations and subqueries
-- Repository + service layer separation
-- Indexes and unique constraints
-- SQLAlchemy 2.x typed models
-
-### Acceptance Criteria
-
-- [ ] `place_order` atomically fails when stock insufficient (no partial order)
-- [ ] OrderItem stores price snapshot different from current Product.price after price change
-- [ ] Category tree query returns products in child categories
-- [ ] Top revenue query matches manual calculation on seed data
-- [ ] 3 migrations apply in order
-- [ ] 20+ tests including transaction failure case
-
-### Bonus Challenges
-
-- Optimistic locking with `version_id` column on Product/Inventory
-- Read-only `session.execute(text("SELECT ..."))` for reporting
-- Partitioning strategy documented for Orders by date
-
-### Hints
-
-- Snapshot price: `OrderItem.unit_price = product.price` at order time
-- Stock check in same transaction before commit
-- Recursive category: `cte = select(Category).where(...).cte(recursive=True)`
+**Time**: 10 minutes
 
 ---
 
-## Assignment 3: User Management with RBAC & Audit Trail
+## Problem 3: Query Records
 
-### Scenario
+**Task**: SELECT queries
+```python
+# Get all users
+users = session.query(User).all()
 
-Implement an enterprise user management database with roles, permissions, soft deletes, and full audit logging — patterns common in admin systems.
+# Get one user
+user = session.query(User).filter(User.name == "Alice").first()
 
-### Requirements
+# Count
+count = session.query(User).count()
+```
 
-**Models:**
+**Time**: 15 minutes
 
-- `User` — soft delete (`deleted_at`), `created_at`, `updated_at`
-- `Role`, `Permission`
-- `user_roles` (many-to-many), `role_permissions` (many-to-many)
-- `AuditLog` — user_id, action, table_name, record_id, old_values JSON, new_values JSON, timestamp
+---
 
-**Features:**
+## Problem 4: Update Record
 
-1. **Soft delete users** — `session.execute(update(User).where(...).values(deleted_at=func.now()))`; default queries exclude deleted
+**Task**: Modify existing user
+```python
+user = session.query(User).filter(User.name == "Alice").first()
+user.email = "newemail@example.com"
+session.commit()
+```
 
-2. **`user_has_permission(user_id, permission_name) -> bool`** — join through roles
+**Time**: 10 minutes
 
-3. **Audit listener** — SQLAlchemy event `after_insert`, `after_update`, `after_delete` on User model writes AuditLog
+---
 
-4. **Bulk operations** — `session.execute(insert(Role), list_of_dicts)` for seeding
+## Problem 5: Delete Record
 
-5. **Pagination** — keyset pagination on User.id for large datasets
+**Task**: Remove user
+```python
+user = session.query(User).filter(User.name == "Alice").first()
+session.delete(user)
+session.commit()
+```
 
-6. **Hybrid property** — `User.is_deleted` based on `deleted_at`
+**Time**: 10 minutes
 
-7. **Query users by role** with eager load roles and permissions in one query
+---
 
-8. **Restore soft-deleted user** — clear `deleted_at`
+## Problem 6: One-to-Many Relationship
 
-9. **Unique constraint** — email active only among non-deleted (partial unique index if SQLite 3.37+ or document limitation)
+**Task**: User has many posts
+```python
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import relationship
 
-10. **Migration** — Alembic autogenerate from models; manual edit for indexes
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    posts = relationship("Post", back_populates="user")
 
-**CLI admin tool:**
+class Post(Base):
+    __tablename__ = 'posts'
+    id = Column(Integer, primary_key=True)
+    title = Column(String)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    user = relationship("User", back_populates="posts")
+```
 
-- `assign-role user@email.com admin`
-- `audit-log --user-id 5`
-- `list-users --role editor --include-deleted`
+**Time**: 20 minutes
 
-### Technical Specifications
+---
 
-- Many-to-many twice (users-roles, roles-permissions)
-- Soft delete pattern
-- SQLAlchemy events for audit
-- Timestamps (server_default=func.now())
-- JSON column for audit old/new values
-- Session flush/commit patterns
+## Problem 7: Filtering and Ordering
 
-### Acceptance Criteria
+**Task**: Complex queries
+```python
+# Filter and order
+users = session.query(User).filter(User.name.like("%Ali%")).order_by(User.id.desc()).all()
 
-- [ ] Permission check returns True/False correctly for role setup
-- [ ] Soft deleted user excluded from `list_users()` but present with `include_deleted=True`
-- [ ] Audit log entry created on user update with old and new email
-- [ ] Bulk role seed inserts 5 roles in one statement
-- [ ] Restore user makes them visible again
-- [ ] Eager load fetches user+roles+permissions in ≤ 2 queries
-- [ ] 15+ tests
+# Multiple filters
+users = session.query(User).filter(User.id > 5).filter(User.name != "Admin").all()
+```
 
-### Bonus Challenges
+**Time**: 15 minutes
 
-- Row-level security simulation in service layer
-- `history` table using SQLAlchemy-Continuum or manual version table
-- Read replica routing documented (conceptual)
+---
 
-### Hints
+## Problem 8: Join Query
 
-- Soft delete filter: `.where(User.deleted_at.is_(None))`
-- Events: `@event.listens_for(User, 'after_update')`
-- JSON: `mapped_column(JSON)` for audit values as dict
+**Task**: Get users with posts
+```python
+from sqlalchemy.orm import joinedload
+
+users = session.query(User).options(joinedload(User.posts)).all()
+```
+
+**Time**: 15 minutes
+
+---
+
+## Problem 9: Aggregation
+
+**Task**: Count posts per user
+```python
+from sqlalchemy import func
+
+results = session.query(
+    User.name,
+    func.count(Post.id).label('post_count')
+).join(Post).group_by(User.name).all()
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 10: Transaction Rollback
+
+**Task**: Rollback on error
+```python
+try:
+    user = User(name="Bob", email="bob@example.com")
+    session.add(user)
+    # Something goes wrong
+    raise Exception("Error!")
+    session.commit()
+except:
+    session.rollback()
+```
+
+**Time**: 10 minutes
+
+---
+
+## Summary Check
+
+**8+ solved** → SQLAlchemy ready  
+**5-7 solved** → Practice relationships  
+**< 5 solved** → Review ORM basics

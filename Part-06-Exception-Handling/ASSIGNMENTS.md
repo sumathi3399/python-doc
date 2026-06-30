@@ -1,229 +1,190 @@
-# Part 6: Exception Handling - Assignments
+# Part 6: Exception Handling - Practice Problems
 
-## Assignment Guidelines
-
-- **Estimated time:** 10-14 hours total
-- **Prerequisites:** Parts 1-5 complete
-- **Submission:** Python package with logging output samples and test data (valid + corrupt files)
-- **Rules:** Use specific exceptions; custom exception hierarchy; context managers throughout
+> Test try/except, custom exceptions, context managers
 
 ---
 
-## Assignment 1: Robust Data Ingestion Pipeline
+## Problem 1: Basic Try-Except
 
-### Scenario
-
-Build a batch processor that ingests mixed-format data files (CSV, JSON, line-delimited logs), validates records, and writes clean output. Production pipelines must never crash silently — every failure mode is handled deliberately.
-
-### Requirements
-
-**Custom exception hierarchy:**
-
+**Task**: Safe division
 ```python
-class PipelineError(Exception): ...
-class ValidationError(PipelineError): ...
-class ParseError(PipelineError): ...
-class FileAccessError(PipelineError): ...
-class ConfigurationError(PipelineError): ...
+def safe_divide(a, b):
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return "Cannot divide by zero"
+
+assert safe_divide(10, 2) == 5
+assert safe_divide(10, 0) == "Cannot divide by zero"
 ```
 
-Each custom exception stores: `message`, `source_file`, `line_number` (optional), `original_exception` (for chaining).
+**Time**: 10 minutes
 
-**Core components:**
+---
 
-1. **`Config` context manager** — loads config dict from JSON file; raises `ConfigurationError` if missing keys; logs load/close
+## Problem 2: Multiple Exceptions
 
-2. **`read_file(path)`** — handles `FileNotFoundError`, `PermissionError`; returns content or raises `FileAccessError` with `raise ... from e`
-
-3. **`parse_csv_line(line, line_no)`** — raises `ParseError` with line number on malformed data
-
-4. **`validate_record(record)`** — raises `ValidationError` subclasses:
-   - `InvalidEmailError`
-   - `InvalidAgeError`
-   - `MissingFieldError`
-
-5. **`process_file(path)`** structure:
-
+**Task**: Safe conversion
 ```python
-try:
-    content = read_file(path)
-except FileAccessError as e:
-    log error; return ProcessingResult(failed=True, ...)
-else:
-    # parsing succeeded
-finally:
-    # update statistics, close resources
+def safe_int(value):
+    try:
+        return int(value)
+    except ValueError:
+        return "Invalid number"
+    except TypeError:
+        return "Wrong type"
+
+assert safe_int("42") == 42
+assert safe_int("abc") == "Invalid number"
+assert safe_int(None) == "Wrong type"
 ```
 
-6. **`BatchProcessor` context manager:**
-   - On enter: initialize stats (`processed`, `failed`, `skipped`)
-   - On exit: write summary report even if exception occurred
-   - On exception inside: rollback in-memory buffer (transaction-style all-or-nothing per file)
-
-7. **Retry logic:** `retry_operation(func, max_attempts=3, delay=1)` for simulated flaky network read (mock with random failure)
-
-8. **Validation chain:** validate email → age → phone; collect ALL errors (don't stop at first) using a list, raise `ValidationError` with `errors: list` if any fail
-
-9. **Logging:** configure `logging` module — INFO for success, WARNING for skipped, ERROR for failures, DEBUG for parse details
-
-10. **CLI:** process directory of files; continue on single file failure (don't abort batch)
-
-### Technical Specifications
-
-- try/except/else/finally
-- Specific exception catching (not bare `except:`)
-- Exception hierarchy and custom exceptions
-- Exception chaining (`raise X from Y`)
-- EAFP vs LBYL — prefer try/except for file/parse operations
-- Context managers (`with`, custom `__enter__`/`__exit__`)
-- `contextlib.contextmanager` for at least one manager
-- Logging integration
-
-### Acceptance Criteria
-
-- [ ] Corrupt file doesn't crash batch; logged and skipped
-- [ ] Missing file raises `FileAccessError` with chained cause
-- [ ] Validation reports multiple errors per record when applicable
-- [ ] `BatchProcessor` summary written in `finally`/`__exit__`
-- [ ] Transaction rollback: partial records not committed on mid-file failure
-- [ ] Retry succeeds on 3rd attempt in test scenario
-- [ ] Log file contains timestamped entries at 3+ levels
-
-### Bonus Challenges
-
-- `suppress` context manager from `contextlib` for optional fields
-- Dead letter queue: write failed records to `failed/` directory with error metadata
-- Exponential backoff in retry: 1s, 2s, 4s
-
-### Hints
-
-- `__exit__` receives exc_type, exc_val, exc_tb; return False to re-raise
-- Validation collector: `errors = []; errors.append(...)` then `if errors: raise ValidationError(errors)`
-- Use `logging.exception()` inside except blocks for stack traces
+**Time**: 10 minutes
 
 ---
 
-## Assignment 2: User Registration & Authentication Service
+## Problem 3: Finally Block
 
-### Scenario
+**Task**: File reading with cleanup
+```python
+def read_file(filename):
+    try:
+        f = open(filename, 'r')
+        content = f.read()
+        return content
+    except FileNotFoundError:
+        return None
+    finally:
+        # Always close if opened
+        if 'f' in locals():
+            f.close()
+```
 
-Implement a terminal-based registration/login system with exhaustive validation and error handling — simulating what happens before data hits a database.
-
-### Requirements
-
-1. **Exception types:**
-   - `AuthError` (base)
-   - `UserAlreadyExistsError`, `InvalidCredentialsError`, `AccountLockedError`, `WeakPasswordError`
-
-2. **Validation functions** (each raises specific exception):
-   - Email format (basic regex or rules)
-   - Password strength (8+ chars, upper, lower, digit, special)
-   - Username (3-20 alphanumeric)
-   - Age 13-120
-
-3. **Registration flow:**
-   - try/except each validation; display user-friendly messages
-   - `else` block: create user on full success
-   - `finally` block: log attempt (success/failure) to `auth.log`
-
-4. **Login flow:**
-   - Track failed attempts in dict; lock after 5 failures (`AccountLockedError`)
-   - Reset counter on success
-
-5. **Context manager `auth_session(user)`:**
-   - Yields user object while "logged in"
-   - Ensures logout in `__exit__`
-   - Raises if session already active
-
-6. **File persistence context manager `user_store(path)`:**
-   - Loads users JSON on enter
-   - Saves on clean exit
-   - Does NOT save if exception occurred during session (rollback)
-
-7. **Simulated API client `ExternalEmailService.send()`:**
-   - Randomly raises `ConnectionError`, `TimeoutError`
-   - Caller implements retry with exponential backoff and logs each attempt
-
-### Technical Specifications
-
-- Full exception handling patterns from Part 6
-- Multiple except blocks and exception tuples: `except (ValueError, TypeError) as e`
-- Custom exception attributes accessed in handlers
-- Context managers for resources and transactions
-
-### Acceptance Criteria
-
-- [ ] Weak password rejected with specific reasons listed
-- [ ] Account locks after 5 failed logins
-- [ ] User store rollback on mid-session crash (test by raising after register)
-- [ ] External email retry logs 3 attempts before giving up
-- [ ] All exceptions inherit from `AuthError` where appropriate
-- [ ] No bare `except:` clauses
-
-### Bonus Challenges
-
-- Exception group handling (Python 3.11+) for batch validation
-- `warnings.warn()` for deprecated username formats
-- Audit trail context manager nesting: `with user_store(), audit_log():`
-
-### Hints
-
-- Password rules: collect failures in list, raise `WeakPasswordError` with details
-- `failed_attempts.setdefault(username, 0)`
-- `user_store.__exit__`: only save if `exc_type is None`
+**Time**: 15 minutes
 
 ---
 
-## Assignment 3: Safe Calculator & Expression Evaluator
+## Problem 4: Else Clause
 
-### Scenario
+**Task**: Search with result message
+```python
+def find_item(items, target):
+    try:
+        index = items.index(target)
+    except ValueError:
+        return f"{target} not found"
+    else:
+        return f"Found {target} at index {index}"
+```
 
-Build a calculator that parses and evaluates math expressions from user input. Invalid input, division by zero, and overflow must all be handled gracefully with custom errors.
+**Time**: 10 minutes
 
-### Requirements
+---
 
-1. **Custom exceptions:** `CalculatorError`, `SyntaxError` (custom, not builtin shadow — name it `ExpressionSyntaxError`), `DivisionByZeroError`, `OverflowError` (custom)
+## Problem 5: Custom Exception
 
-2. **Tokenizer and parser** (simple: split tokens or recursive descent for `+,-,*,/`)
+**Task**: Create validation error
+```python
+class ValidationError(Exception):
+    pass
 
-3. **Evaluation with try/except at each level:**
-   - Tokenize errors → `ExpressionSyntaxError`
-   - Unknown operator → `CalculatorError`
-   - Division by zero → `DivisionByZeroError`
-   - Result too large → custom `OverflowError`
+def validate_age(age):
+    if age < 0 or age > 150:
+        raise ValidationError("Invalid age")
+    return True
 
-4. **Context manager `calculation_context`:** sets precision mode (normal/scientific); restores on exit
+# Test it
+```
 
-5. **History file context manager:** append each successful calculation; handle `IOError`
+**Time**: 10 minutes
 
-6. **REPL:** continues after errors; displays error type and message; never crashes
+---
 
-7. **Use `else`:** only add to history if evaluation succeeded
-8. **Use `finally`:** reset "last result" display flag
+## Problem 6: Exception Chaining
 
-### Technical Specifications
+**Task**: Add context to errors
+```python
+def process_data(data):
+    try:
+        result = int(data) / 10
+    except (ValueError, ZeroDivisionError) as e:
+        raise RuntimeError("Processing failed") from e
+```
 
-- Exception hierarchy
-- try/except/else/finally in one cohesive app
-- Context managers for precision and file history
-- User-friendly error messages mapping exception → message
+**Time**: 15 minutes
 
-### Acceptance Criteria
+---
 
-- [ ] `10 / 0` → `DivisionByZeroError` with clear message
-- [ ] `10 + + 5` → syntax error
-- [ ] REPL runs 10+ operations including errors without exiting
-- [ ] History file contains only successful calculations
-- [ ] Context manager restores precision mode after exception
+## Problem 7: Context Manager
 
-### Bonus Challenges
+**Task**: Use with statement
+```python
+# Read file using context manager
+with open('test.txt', 'r') as f:
+    content = f.read()
+# File automatically closed
+```
 
-- Variables: `x = 5` then `x + 3` with `NameError` handling
-- Parentheses support with nested parse error messages including position
-- `atexit` or `finally` to flush history on Ctrl+C
+**Time**: 5 minutes
 
-### Hints
+---
 
-- Tokenize: `import re; re.findall(r'\d+\.?\d*|[+\-*/()]', expr)`
-- Map custom exceptions to messages in dict at REPL level
-- Don't name your class `SyntaxError` — use `ExpressionSyntaxError`
+## Problem 8: Custom Context Manager
+
+**Task**: Timer context
+```python
+import time
+
+class Timer:
+    def __enter__(self):
+        self.start = time.time()
+        return self
+    
+    def __exit__(self, *args):
+        self.end = time.time()
+        print(f"Elapsed: {self.end - self.start:.2f}s")
+
+with Timer():
+    time.sleep(1)
+```
+
+**Time**: 20 minutes
+
+---
+
+## Problem 9: Suppress Exceptions
+
+**Task**: Ignore file not found
+```python
+from contextlib import suppress
+
+# Don't crash if file doesn't exist
+with suppress(FileNotFoundError):
+    with open('missing.txt') as f:
+        content = f.read()
+```
+
+**Time**: 10 minutes
+
+---
+
+## Problem 10: Assertion
+
+**Task**: Input validation
+```python
+def set_age(age):
+    assert 0 <= age <= 150, "Age must be 0-150"
+    return age
+
+# Test valid and invalid
+```
+
+**Time**: 5 minutes
+
+---
+
+## Summary Check
+
+**8+ solved** → Exception handling mastered  
+**5-7 solved** → Practice custom exceptions and context managers  
+**< 5 solved** → Review try/except patterns
